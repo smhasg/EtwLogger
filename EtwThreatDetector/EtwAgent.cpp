@@ -2,15 +2,22 @@
 #include "EtwUtils.h"
 #include "nlohmann\json.hpp"
 
+#include <windows.h>
 #include <iostream>
 #include <Psapi.h>
 #include <TlHelp32.h>
 #include <regex>
 #include <fstream>
 #include <filesystem>
+#include <thread>
+#include <chrono>
+#include <string>
+#include <cstdlib>
+#include <ctime>
 
 CRITICAL_SECTION fileCriticalSection;
 CRITICAL_SECTION logCriticalSection;
+
 std::string g_curDirectory;
 std::string g_logFileName = "EventLogs.txt";
 DWORD g_curProcId = 0;
@@ -19,10 +26,9 @@ std::map<std::pair<int, std::string>, int> processMap;
 std::map<int, int> pidMap;
 std::mutex mapMutex;
 std::deque<nlohmann::json> g_jsonList;
-std::unordered_map<std::string, bool> g_monitoredProcesses;
-
+std::unordered_map<std::string, bool > g_monitoredProcesses;
+std::string randomString;
 #define BATCH_SIZE 100
-
 
 
 template<typename T>
@@ -44,8 +50,6 @@ void AssignJsonValue(nlohmann::json& propertyJson, const std::string& key, const
         propertyJson[key] = "";
     }
 }
-
-
 
 std::string GetProcessNameFromEvent(DWORD processId) {
     HANDLE processHandle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
@@ -71,6 +75,18 @@ std::string GetProcessNameFromEvent(DWORD processId) {
     return "";
 }
 
+std::string generateRandomString(int length) {
+    const char charset[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    const int charsetSize = sizeof(charset) - 1;
+
+    std::string randomString;
+    srand(static_cast<unsigned int>(time(nullptr)));
+
+    for (int i = 0; i < length; ++i) {
+        randomString += charset[rand() % charsetSize];
+    }
+    return randomString;
+}
 
 EtwMon::EtwMon(const std::wstring& traceName, LogLevel maxLog, CustomProcessAlertFunction customProcessFunc)
     : etwTrace(traceName), maxLogLevel(maxLog) {
@@ -102,7 +118,6 @@ void EtwMon::start() {
     }
 }
 
-
 void EtwMon::stop() {
     if (bTraceStarted)
     {
@@ -125,9 +140,6 @@ void DeleteCriticalSectionForLog() {
 void InitializeCriticalSectionForLog() {
     InitializeCriticalSection(&logCriticalSection);
 }
-
-
-
 
 void EtwMon::PrintEventInfo(const EVENT_RECORD& record, const krabs::trace_context& trace_context, nlohmann::json& jsonOutput) {
     krabs::schema schema(record, trace_context.schema_locator);
@@ -154,25 +166,25 @@ void EtwMon::PrintEventInfo(const EVENT_RECORD& record, const krabs::trace_conte
     std::string providerName(providerNameWs.begin(), providerNameWs.end());
 
     jsonOutput["EventId"] = record.EventHeader.EventDescriptor.Id;
-    jsonOutput["Version"] = record.EventHeader.EventDescriptor.Version;
-    jsonOutput["Level"] = record.EventHeader.EventDescriptor.Level;
+    //jsonOutput["Version"] = record.EventHeader.EventDescriptor.Version;
+    //jsonOutput["Level"] = record.EventHeader.EventDescriptor.Level;
     jsonOutput["Opcode"] = record.EventHeader.EventDescriptor.Opcode;
-    jsonOutput["Channel"] = record.EventHeader.EventDescriptor.Channel;
+    //jsonOutput["Channel"] = record.EventHeader.EventDescriptor.Channel;
     jsonOutput["Task"] = record.EventHeader.EventDescriptor.Task;
-    jsonOutput["Keyword"] = record.EventHeader.EventDescriptor.Keyword;
+    //jsonOutput["Keyword"] = record.EventHeader.EventDescriptor.Keyword;
 
     jsonOutput["TaskName"] = taskName;
     jsonOutput["OpcodeName"] = opcodeName;
-    jsonOutput["ActivityId"] = activityGuidString;
+    //jsonOutput["ActivityId"] = activityGuidString;
     jsonOutput["ProviderName"] = providerName;
-    jsonOutput["DecodingSource"] = schema.decoding_source();
+    //jsonOutput["DecodingSource"] = schema.decoding_source();
     jsonOutput["ProcessID"] = record.EventHeader.ProcessId;
     jsonOutput["ThreadID"] = record.EventHeader.ThreadId;
     jsonOutput["TimeStamp"] = record.EventHeader.TimeStamp.QuadPart;
-    jsonOutput["Property"] = record.EventHeader.EventProperty;
-    jsonOutput["Flags"] = record.EventHeader.Flags;
-    jsonOutput["KernelTime"] = record.EventHeader.KernelTime;
-    jsonOutput["UserTime"] = record.EventHeader.UserTime;
+    //jsonOutput["Property"] = record.EventHeader.EventProperty;
+    //jsonOutput["Flags"] = record.EventHeader.Flags;
+    //jsonOutput["KernelTime"] = record.EventHeader.KernelTime;
+    //jsonOutput["UserTime"] = record.EventHeader.UserTime;
     jsonOutput["Size"] = record.EventHeader.Size;
     jsonOutput["ProcessPath"] = originProcessPath;
 
@@ -366,8 +378,6 @@ void EtwMon::PrintPropertyInfo(krabs::parser& parser, nlohmann::json& jsonOutput
     //    std::cout << jsonOutput << std::endl;
 }
 
-
-
 void EtwMon::log(LogLevel level, const char* fmt, ...) {
     if (level <= maxLogLevel && level != LogDisabled && level != LogError) {
         va_list args;
@@ -401,8 +411,6 @@ void EtwMon::log(LogLevel level, const char* fmt, ...) {
         va_end(args);
     }
 }
-
-
 
 void addProcess(int pid, const std::string& processPath) {
     auto key = std::make_pair(pid, processPath);
@@ -474,17 +482,19 @@ void WriteJsonToFile(const nlohmann::json& jsonData, const std::string& filePath
 }
 
 void WriteJsonBatchToFile(const std::vector<nlohmann::json>& batch) {
-    std::string g_logFile = g_curDirectory + "\\" + g_logFileName;
 
-    std::ofstream file(g_logFile, std::ios::app);   
+    // Append the random string to g_logFile
+    std::string g_logFile = "C:\\APPAIEtwLogger\\" + randomString +"_"+ g_logFileName ;
 
     EnterCriticalSection(&fileCriticalSection);
 
+    std::ofstream file(g_logFile, std::ios::app);
     if (file.is_open()) {
         for (const auto& jsonItem : batch) {
             file << jsonItem.dump() << std::endl;
         }
     }
+
 
     LeaveCriticalSection(&fileCriticalSection);
 }
@@ -495,7 +505,6 @@ void WriteBatchAsync(const std::vector<nlohmann::json>& batch) {
     std::thread writeThread(WriteJsonBatchToFile, batchCopy);
     writeThread.detach();
 }
-
 
 void ProcessJsonList() {
     std::deque<nlohmann::json> localJsonList;
@@ -528,7 +537,6 @@ void ProcessJsonList() {
     }
 }
 
-
 void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_context& trace_context) {
     krabs::schema schema(record, trace_context.schema_locator);
     krabs::parser parser(schema);
@@ -537,7 +545,6 @@ void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_co
 
     if (record.EventHeader.ProcessId == g_curProcId)
         return;
-
 
     if (!g_monitoredProcesses.empty()) {
         eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
@@ -571,9 +578,6 @@ void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_co
         DPRINT_ERROR(ErrorDefault, "Unknown exception caught!");
     }
 }
-
-
-
 
 bool EtwMon::RegisterProviders(const std::vector<PROVIDER_INFO>& providerInfoVector) {
     bool bResult = false;
@@ -624,17 +628,17 @@ void EtwAlertProcessor(const nlohmann::json& jsonAlert) {
     //std::cout << jsonAlert.dump(4) << std::endl;
 }
 
-
 void LoadProcessNames() {
 
-    std::ifstream file("processes.txt");
+    std::ifstream file("C:\\APPAIEtwLogger\\processes.txt");
     if (!file.is_open()) {
         std::cout << "processes.txt not found. Monitoring all processes." << std::endl;
         return;
     }
 
     std::string processName;
-    int i = 0;
+   /*
+   int i = 0;
     while (std::getline(file, processName)) {
         
         std::cout << "Monitored ProcessName: " << processName << std::endl;
@@ -642,19 +646,129 @@ void LoadProcessNames() {
         g_monitoredProcesses[processName] = true;
         i++;
     }
+    */
+    int totalProcesses = 0;
+    while (std::getline(file, processName)) {
+        totalProcesses++;
+    }
+    if (totalProcesses == 0) {
+        std::cout << "No processes found. Exiting." << std::endl;
+        return;
+    }
+    srand(static_cast<unsigned int>(time(nullptr)));
+    int randomIndex = rand() % totalProcesses;
+    file.clear();
+    file.seekg(0, std::ios::beg);
+    int currentIndex = 0;
+    while(std::getline(file, processName)) {
+            if (currentIndex == randomIndex) {
+            std::cout << std::endl << "Randomly Selected Process: " << processName << std::endl;
+            g_logFileName = processName + ".txt";
+            g_monitoredProcesses[processName] = true;
+            //break;
+        }
+        else {
+                g_monitoredProcesses[processName] = false;
+        }
+        currentIndex++;
+    }
+    file.close();
 }
 
+void ListProcessesToFile(const char* filename) {
+    // Create a handle to the snapshot of all processes
+    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hProcessSnap == INVALID_HANDLE_VALUE) {
+        std::cerr << "Error creating process snapshot. Exiting." << std::endl;
+        return;
+    }
+
+    // Set the size of the structure before using it
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    // Open the process snapshot
+    if (!Process32First(hProcessSnap, &pe32)) {
+        std::cerr << "Error getting first process. Exiting." << std::endl;
+        CloseHandle(hProcessSnap);
+        return;
+    }
+
+    // Open the file for writing
+    std::ofstream outFile(filename);
+
+    if (!outFile.is_open()) {
+        std::cerr << "Error opening file. Exiting." << std::endl;
+        CloseHandle(hProcessSnap);
+        return;
+    }
+
+    // Use a set to keep track of unique process names
+    std::set<std::string> uniqueProcessNames;
+
+    // Write process names to the file
+    do {
+        if (pe32.th32ProcessID > 4) {
+            std::string processName = pe32.szExeFile;
+
+            // Check if the process name is not already in the set
+            if (uniqueProcessNames.insert(processName).second) {
+                outFile << processName << std::endl;
+            }
+        }
+    } while (Process32Next(hProcessSnap, &pe32));
+
+    // Close handles
+    CloseHandle(hProcessSnap);
+    outFile.close();
+}
+
+void RunFunctionPeriodically() {
+
+    const char* filename = "C:\\APPAIEtwLogger\\processes.txt";
+    ListProcessesToFile(filename);
+
+    while (true) {
+
+        LoadProcessNames();
+        randomString = generateRandomString(8);
+        // Sleep for 5 minutes (300 seconds)
+        std::this_thread::sleep_for(std::chrono::seconds(60));
+        ListProcessesToFile(filename);
+    }
+}
+
+//void LoadVectorizer() {
+//    std::ifstream file("vectorizer_tfidf.pickle.dat", std::ios::binary);
+//
+//    if (!file.is_open()) {
+//
+//        std::cerr << "Error opening file." << std::endl;
+//        std::vector<char> buffer((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+//        }
+//
+//}
 
 int initEtwMon() {
     DBG_LOG("Init EtwMon called...");
     InitializeCriticalSectionForFile();
     InitializeCriticalSectionForLog();
-    LoadProcessNames();
+    std::thread periodicThread(RunFunctionPeriodically);
+    periodicThread.detach();
+
+    //LoadVectorizer();
+    //MyVectorizer myVectorizer = ;
+    //{
+    //    boost::archive::binary_iarchive archive(file);
+    //    archive >> myVectorizer;
+    //}
+
+    // Visualize the vectorizer's contents
+    //myVectorizer.visualize();
 
     EtwMon monitor(EtwAgentName, EtwMon::LogDefault, EtwAlertProcessor);
-
-
-    std::ifstream file("providers.txt");
+    
+    std::ifstream file("C:\\APPAIEtwLogger\\providers.txt");
     std::vector<std::wstring> lines;
 
     if (file.is_open()) {
@@ -705,10 +819,6 @@ int initEtwMon() {
         std::wcout << std::endl;
     }
 
-
-
-
-
     if (monitor.RegisterProviders(providerInfoVector))
     {
         std::thread printerThread(printMapPeriodically);
@@ -717,15 +827,12 @@ int initEtwMon() {
         processJsonThread.detach();
         monitor.start();
     }
-
-
+    
     DeleteCriticalSectionForFile();
     DeleteCriticalSectionForLog();
 
     return 0;
 }
-
-
 
 void InitializeGlobalDirectory() {
     char buffer[MAX_PATH];
@@ -739,7 +846,6 @@ void InitializeGlobalDirectory() {
         g_curDirectory = "";
     }
 }
-
 
 int main() {
     g_logFileName = EtwUtils::getComputerName() + ".txt";

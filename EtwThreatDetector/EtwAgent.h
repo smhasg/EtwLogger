@@ -105,3 +105,5 @@ private:
     std::vector<std::unique_ptr<krabs::event_filter>> filters;
 
 };
+
+int initEtwMon();
