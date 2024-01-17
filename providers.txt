@@ -1,0 +1,9 @@
+Microsoft-Windows-Kernel-File
+Microsoft-Windows-Kernel-Disk
+Microsoft-Windows-Kernel-AppCompat
+Microsoft-Windows-Kernel-Audit-API-Calls
+Microsoft-Windows-Kernel-Memory
+Microsoft-Windows-Kernel-Prefetch
+Microsoft-Windows-Kernel-Process
+Microsoft-Windows-Kernel-Registry
+Microsoft-Windows-Kernel-Network

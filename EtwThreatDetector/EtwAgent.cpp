@@ -447,6 +447,7 @@ void printMapPeriodically() {
             }
         );
 
+
         for (const auto& pair : sortedProcesses) {
             DBG_LOG("PID: %d, Process: %s, Count: %d", pair.first.first, pair.first.second.c_str(), pair.second);
         }
@@ -483,7 +484,6 @@ void WriteJsonToFile(const nlohmann::json& jsonData, const std::string& filePath
 
 void WriteJsonBatchToFile(const std::vector<nlohmann::json>& batch) {
 
-    // Append the random string to g_logFile
     std::string g_logFile = "C:\\APPAIEtwLogger\\" + randomString +"_"+ g_logFileName ;
 
     EnterCriticalSection(&fileCriticalSection);
