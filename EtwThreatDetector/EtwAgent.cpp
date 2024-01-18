@@ -30,6 +30,16 @@ std::unordered_map<std::string, bool > g_monitoredProcesses;
 std::string randomString;
 #define BATCH_SIZE 100
 
+//"svchost.exe", "conhost.exe", "cftmon.exe", "Registry", "RuntimeBroker.exe",
+//"explorer.exe", "dllhost.exe", "", " MsMpEng.exe", "System", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe",
+//"lsass.exe", "fontdrvhost.exe", "WUDFHost.exe", "dwm.exe", "vm3dservice.exe", "Memory Compression", "spoolsv.exe", "VGAuthService.exe", "MsMpEng.exe",
+//"msdtc.exe", "WmiPrvSE.exe", "sihost.exe", "taskhostw.exe", "SearchIndexer.exe", "StartMenuExperienceHost.exe", "SearchApp.exe", "NisSrv.exe",
+//"SecurityHealthSystray.exe", "SecurityHealthService.exe", "emedtray.exe", "WinStore.App.exe", "TextInputHost.exe", "devenv.exe", "PerfWatson2.exe",
+//"Microsoft.ServiceHub.Controller.exe", "ServiceHub.IdentityHost.exe", "ServiceHub.VSDetouredHost.exe", "SgrmBroker.exe", "ServiceHub.SettingsHost.exe",
+//"ServiceHub.Host.CLR.x86.exe", "ServiceHub.ThreadedWaitDialog.exe", "vcpkgsrv.exe", "Microsoft.Alm.Shared.Remoting.RemoteContainer.dll", "ServiceHub.TestWindowStoreHost.exe",
+//"ShellExperienceHost.exe", "ServiceHub.DataWarehouseHost.exe", "LockApp.exe", "SystemSettings.exe", "UserOOBEBroker.exe", "mspdbsrv.exe", "smartscreen.exe",
+//"CompatTelRunner.exe", "SearchProtocolHost.exe", "audiodg.exe", "StandardCollector.Service.exe", "ScriptedSandbox64.exe", "EtwLogger.exe", "SearchFilterHost.exe"
+std::vector<std::string> list_of_ban_strings = {""};
 
 template<typename T>
 T safe_parse(krabs::parser& parser, const std::wstring& property_name, const T& default_value) {
@@ -143,7 +153,6 @@ void InitializeCriticalSectionForLog() {
 
 void EtwMon::PrintEventInfo(const EVENT_RECORD& record, const krabs::trace_context& trace_context, nlohmann::json& jsonOutput) {
     krabs::schema schema(record, trace_context.schema_locator);
-
     DWORD flags = record.EventHeader.Flags;
     auto originProcessPath = EtwUtils::GetProcessPathFromId(record.EventHeader.ProcessId);
     DWORD eventProperty = record.EventHeader.EventProperty;
@@ -165,26 +174,26 @@ void EtwMon::PrintEventInfo(const EVENT_RECORD& record, const krabs::trace_conte
     std::wstring providerNameWs = schema.provider_name();
     std::string providerName(providerNameWs.begin(), providerNameWs.end());
 
-    jsonOutput["EventId"] = record.EventHeader.EventDescriptor.Id;
-    //jsonOutput["Version"] = record.EventHeader.EventDescriptor.Version;
-    //jsonOutput["Level"] = record.EventHeader.EventDescriptor.Level;
-    jsonOutput["Opcode"] = record.EventHeader.EventDescriptor.Opcode;
-    //jsonOutput["Channel"] = record.EventHeader.EventDescriptor.Channel;
-    jsonOutput["Task"] = record.EventHeader.EventDescriptor.Task;
-    //jsonOutput["Keyword"] = record.EventHeader.EventDescriptor.Keyword;
+    //jsonOutput["EventId"] = record.EventHeader.EventDescriptor.Id;
+    ////jsonOutput["Version"] = record.EventHeader.EventDescriptor.Version;
+    ////jsonOutput["Level"] = record.EventHeader.EventDescriptor.Level;
+    ////jsonOutput["Channel"] = record.EventHeader.EventDescriptor.Channel;
+    ////jsonOutput["ActivityId"] = activityGuidString;
+    ////jsonOutput["DecodingSource"] = schema.decoding_source();
+    ////jsonOutput["UserTime"] = record.EventHeader.UserTime;
+    ////jsonOutput["Flags"] = record.EventHeader.Flags;
+    ////jsonOutput["Property"] = record.EventHeader.EventProperty;
+    ////jsonOutput["KernelTime"] = record.EventHeader.KernelTime;
+    ////jsonOutput["Keyword"] = record.EventHeader.EventDescriptor.Keyword;
 
+    //jsonOutput["Task"] = record.EventHeader.EventDescriptor.Task;
+    //jsonOutput["Opcode"] = record.EventHeader.EventDescriptor.Opcode;
     jsonOutput["TaskName"] = taskName;
     jsonOutput["OpcodeName"] = opcodeName;
-    //jsonOutput["ActivityId"] = activityGuidString;
     jsonOutput["ProviderName"] = providerName;
-    //jsonOutput["DecodingSource"] = schema.decoding_source();
     jsonOutput["ProcessID"] = record.EventHeader.ProcessId;
     jsonOutput["ThreadID"] = record.EventHeader.ThreadId;
     jsonOutput["TimeStamp"] = record.EventHeader.TimeStamp.QuadPart;
-    //jsonOutput["Property"] = record.EventHeader.EventProperty;
-    //jsonOutput["Flags"] = record.EventHeader.Flags;
-    //jsonOutput["KernelTime"] = record.EventHeader.KernelTime;
-    //jsonOutput["UserTime"] = record.EventHeader.UserTime;
     jsonOutput["Size"] = record.EventHeader.Size;
     jsonOutput["ProcessPath"] = originProcessPath;
 
@@ -372,7 +381,7 @@ void EtwMon::PrintPropertyInfo(krabs::parser& parser, nlohmann::json& jsonOutput
 
     }
 
-    jsonOutput["EventData"] = propertyJson;
+    //jsonOutput["EventData"] = propertyJson;
 
     //if (bPrintJson)
     //    std::cout << jsonOutput << std::endl;
@@ -543,8 +552,16 @@ void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_co
     nlohmann::json jsonOutput;
     std::string eventProcessName;
 
+    std::string PName = EtwUtils::GetProcessNameById(record.EventHeader.ProcessId);
+
     if (record.EventHeader.ProcessId == g_curProcId)
         return;
+
+    if (record.EventHeader.ProcessId < 4 ) 
+        return;
+    
+    //if ( std::find(list_of_ban_strings.begin(), list_of_ban_strings.end(), PName) != list_of_ban_strings.end()) 
+    //    return;
 
     if (!g_monitoredProcesses.empty()) {
         eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
@@ -555,17 +572,15 @@ void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_co
 
     //addPid(record.EventHeader.ProcessId);
     addProcess(record.EventHeader.ProcessId, EtwUtils::GetProcessPathFromId(record.EventHeader.ProcessId));
-
+    
     try {
-        PrintEventInfo(record, trace_context, jsonOutput);
-        PrintPropertyInfo(parser, jsonOutput, record, trace_context);
+            PrintEventInfo(record, trace_context, jsonOutput);
+            PrintPropertyInfo(parser, jsonOutput, record, trace_context);
+            EnterCriticalSection(&logCriticalSection);
+            g_jsonList.emplace_back(std::move(jsonOutput));
+            LeaveCriticalSection(&logCriticalSection);
 
-
-        EnterCriticalSection(&logCriticalSection);
-        g_jsonList.emplace_back(std::move(jsonOutput));
-        LeaveCriticalSection(&logCriticalSection);
-
-
+        
         //std::string filePath = g_curDirectory + "\\EventLogs.txt";
         //WriteJsonToFile(jsonOutput, filePath);
     }
@@ -629,7 +644,7 @@ void EtwAlertProcessor(const nlohmann::json& jsonAlert) {
 }
 
 void LoadProcessNames() {
-
+    g_monitoredProcesses.clear();
     std::ifstream file("C:\\APPAIEtwLogger\\processes.txt");
     if (!file.is_open()) {
         std::cout << "processes.txt not found. Monitoring all processes." << std::endl;
@@ -647,6 +662,7 @@ void LoadProcessNames() {
         i++;
     }
     */
+
     int totalProcesses = 0;
     while (std::getline(file, processName)) {
         totalProcesses++;
@@ -661,15 +677,20 @@ void LoadProcessNames() {
     file.seekg(0, std::ios::beg);
     int currentIndex = 0;
     while(std::getline(file, processName)) {
-            if (currentIndex == randomIndex) {
+            if (currentIndex == randomIndex ) {
+            
+            DBG_LOG("\n#############################################################");
             std::cout << std::endl << "Randomly Selected Process: " << processName << std::endl;
+            DBG_LOG("\n#############################################################");
+
             g_logFileName = processName + ".txt";
             g_monitoredProcesses[processName] = true;
             //break;
         }
-        else {
+        /*else {
                 g_monitoredProcesses[processName] = false;
-        }
+        }*/
+
         currentIndex++;
     }
     file.close();
@@ -703,12 +724,20 @@ void ListProcessesToFile(const char* filename) {
         return;
     }
 
-    // Use a set to keep track of unique process names
     std::set<std::string> uniqueProcessNames;
-
-    // Write process names to the file
     do {
-        if (pe32.th32ProcessID > 4) {
+        
+        std::vector<std::string> ban_to_write = { "" ,"svchost.exe", "conhost.exe", "cftmon.exe", "Registry", "RuntimeBroker.exe",
+"explorer.exe", "dllhost.exe", "", " MsMpEng.exe", "System", "smss.exe", "csrss.exe", "wininit.exe", "winlogon.exe", "services.exe",
+"lsass.exe", "fontdrvhost.exe", "WUDFHost.exe", "dwm.exe", "vm3dservice.exe", "Memory Compression", "spoolsv.exe", "VGAuthService.exe", "MsMpEng.exe",
+"msdtc.exe", "WmiPrvSE.exe", "sihost.exe", "taskhostw.exe", "SearchIndexer.exe", "StartMenuExperienceHost.exe", "SearchApp.exe", "NisSrv.exe",
+"SecurityHealthSystray.exe", "SecurityHealthService.exe", "emedtray.exe", "WinStore.App.exe", "TextInputHost.exe", "devenv.exe", "PerfWatson2.exe",
+"Microsoft.ServiceHub.Controller.exe", "ServiceHub.IdentityHost.exe", "ServiceHub.VSDetouredHost.exe", "SgrmBroker.exe", "ServiceHub.SettingsHost.exe",
+"ServiceHub.Host.CLR.x86.exe", "ServiceHub.ThreadedWaitDialog.exe", "vcpkgsrv.exe", "Microsoft.Alm.Shared.Remoting.RemoteContainer.dll", "ServiceHub.TestWindowStoreHost.exe",
+"ShellExperienceHost.exe", "ServiceHub.DataWarehouseHost.exe", "LockApp.exe", "SystemSettings.exe", "UserOOBEBroker.exe", "mspdbsrv.exe", "smartscreen.exe",
+"CompatTelRunner.exe", "SearchProtocolHost.exe", "audiodg.exe", "StandardCollector.Service.exe", "ScriptedSandbox64.exe", "EtwLogger.exe", "SearchFilterHost.exe" 
+        };
+        if (pe32.th32ProcessID > 4 && std::find(ban_to_write.begin(), ban_to_write.end(), pe32.szExeFile ) == ban_to_write.end()) {
             std::string processName = pe32.szExeFile;
 
             // Check if the process name is not already in the set
@@ -729,12 +758,12 @@ void RunFunctionPeriodically() {
     ListProcessesToFile(filename);
 
     while (true) {
-
+        std::this_thread::sleep_for(std::chrono::seconds(85));
         LoadProcessNames();
         randomString = generateRandomString(8);
-        // Sleep for 5 minutes (300 seconds)
-        std::this_thread::sleep_for(std::chrono::seconds(60));
         ListProcessesToFile(filename);
+        //std::this_thread::sleep_for(std::chrono::seconds(5));
+
     }
 }
 
