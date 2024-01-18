@@ -40,7 +40,57 @@ std::string randomString;
 //"ShellExperienceHost.exe", "ServiceHub.DataWarehouseHost.exe", "LockApp.exe", "SystemSettings.exe", "UserOOBEBroker.exe", "mspdbsrv.exe", "smartscreen.exe",
 //"CompatTelRunner.exe", "SearchProtocolHost.exe", "audiodg.exe", "StandardCollector.Service.exe", "ScriptedSandbox64.exe", "EtwLogger.exe", "SearchFilterHost.exe"
 std::vector<std::string> list_of_ban_strings = {""};
+std::vector<DWORD> Allowed_processes;
+std::vector<DWORD> GetChildProcesses(DWORD parentPID) {
+    std::vector<DWORD> childProcesses;
 
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        std::cerr << "Error creating process snapshot." << std::endl;
+        return childProcesses;
+    }
+
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    if (Process32First(hSnapshot, &pe32)) {
+        do {
+            if (pe32.th32ParentProcessID == parentPID) {
+                childProcesses.push_back(pe32.th32ProcessID);
+            }
+        } while (Process32Next(hSnapshot, &pe32));
+    }
+
+    childProcesses.push_back(parentPID);
+
+    CloseHandle(hSnapshot);
+    return childProcesses;
+}
+
+DWORD GetProcessIdByName(const std::string& processName) {
+    DWORD processId = 0;
+
+    HANDLE hSnapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (hSnapshot == INVALID_HANDLE_VALUE) {
+        std::cerr << "Error creating process snapshot." << std::endl;
+        return 0;
+    }
+
+    PROCESSENTRY32 pe32;
+    pe32.dwSize = sizeof(PROCESSENTRY32);
+
+    if (Process32First(hSnapshot, &pe32)) {
+        do {
+            if (_stricmp(pe32.szExeFile, processName.c_str()) == 0) {
+                processId = pe32.th32ProcessID;
+                break;
+            }
+        } while (Process32Next(hSnapshot, &pe32));
+    }
+
+    CloseHandle(hSnapshot);
+    return processId;
+}
 template<typename T>
 T safe_parse(krabs::parser& parser, const std::wstring& property_name, const T& default_value) {
     try {
@@ -61,28 +111,66 @@ void AssignJsonValue(nlohmann::json& propertyJson, const std::string& key, const
     }
 }
 
-std::string GetProcessNameFromEvent(DWORD processId) {
-    HANDLE processHandle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+//std::string GetProcessNameFromEvent(DWORD processId) {
+//    HANDLE processHandle = OpenProcess(PROCESS_QUERY_INFORMATION | PROCESS_VM_READ, FALSE, processId);
+//
+//    if (processHandle) {
+//        TCHAR processPath[MAX_PATH];
+//        if (GetModuleFileNameEx(processHandle, NULL, processPath, MAX_PATH)) {
+//            // Process path is obtained, extract the process name
+//            CloseHandle(processHandle);
+//
+//            std::string fullPath(processPath);
+//            size_t lastBackslash = fullPath.find_last_of("\\");
+//            if (lastBackslash != std::string::npos) {
+//                return fullPath.substr(lastBackslash+1 );
+//            }
+//        }
+//        else
+//        {
+//            CloseHandle(processHandle);
+//            return EtwUtils::GetProcessNameById(processId);
+//        }
+//    }
+//    return "";
+//}
 
-    if (processHandle) {
-        TCHAR processPath[MAX_PATH];
-        if (GetModuleFileNameEx(processHandle, NULL, processPath, MAX_PATH)) {
-            // Process path is obtained, extract the process name
-            CloseHandle(processHandle);
+std::string GetProcessName(DWORD processId) {
 
-            std::string fullPath(processPath);
-            size_t lastBackslash = fullPath.find_last_of("\\");
-            if (lastBackslash != std::string::npos) {
-                return fullPath.substr(lastBackslash + 1);
-            }
-        }
-        else
-        {
-            CloseHandle(processHandle);
-            return EtwUtils::GetProcessNameById(processId);
-        }
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    if (hProcess == NULL) {
+        std::cerr << "Error opening process. Code: " << GetLastError() << std::endl;
+        return "";
     }
-    return "";
+
+    wchar_t processName[MAX_PATH];
+    DWORD size = sizeof(processName) / sizeof(processName[0]);
+
+    if (QueryFullProcessImageName(hProcess, 0, &processName, &size) == 0) {
+        std::cerr << "Error querying process image name. Code: " << GetLastError() << std::endl;
+        CloseHandle(hProcess);
+        return L"";
+    }
+
+    CloseHandle(hProcess);
+
+    return processName;
+}
+
+
+void SetChildTrue(std::string processName)
+{
+    for (auto& pair : g_monitoredProcesses) {
+        pair.second = false;
+    }
+
+    DWORD selectedPID = GetProcessIdByName(processName);
+    Allowed_processes = GetChildProcesses(selectedPID);
+
+    for (auto& item : Allowed_processes) {
+        std::string childname = GetProcessNameFromEvent(item);
+        g_monitoredProcesses[childname] = true;
+    }
 }
 
 std::string generateRandomString(int length) {
@@ -234,6 +322,7 @@ void EtwMon::PrintPropertyInfo(krabs::parser& parser, nlohmann::json& jsonOutput
                     processID != record.EventHeader.ProcessId &&
                     (record.EventHeader.EventDescriptor.Id == EtwEvents::Process::EVENT_PROCESS_START || record.EventHeader.EventDescriptor.Id == EtwEvents::Process::EVENT_THREAD_START) &&
                     jsonOutput["ProviderName"] == "Microsoft-Windows-Kernel-Process" )
+                    
                 {
                     auto processPath = GetProcessNameFromEvent(processID);
                     if (!g_monitoredProcesses.empty())
@@ -551,28 +640,28 @@ void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_co
     krabs::parser parser(schema);
     nlohmann::json jsonOutput;
     std::string eventProcessName;
-
-    std::string PName = EtwUtils::GetProcessNameById(record.EventHeader.ProcessId);
-
-    if (record.EventHeader.ProcessId == g_curProcId)
-        return;
-
-    if (record.EventHeader.ProcessId < 4 ) 
-        return;
     
+    //if (std::find(Allowed_processes.begin(), Allowed_processes.end(), record.EventHeader.ProcessId ) != Allowed_processes.end())
     //if ( std::find(list_of_ban_strings.begin(), list_of_ban_strings.end(), PName) != list_of_ban_strings.end()) 
     //    return;
+    
+    //std::string PName = EtwUtils::GetProcessNameById(record.EventHeader.ProcessId);
 
-    if (!g_monitoredProcesses.empty()) {
-        eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
+ /*   if (g_monitoredProcesses.empty())
+        return;*/
+    if(record.EventHeader.ProcessId < 4  ) 
+        return;  
+    if (record.EventHeader.ProcessId == g_curProcId)
+        return;        
 
-        if(eventProcessName.empty() || g_monitoredProcesses.find(eventProcessName) == g_monitoredProcesses.end())
-            return;
-    }
+    eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
+   //if(eventProcessName.empty() || g_monitoredProcesses.find(eventProcessName) == g_monitoredProcesses.end())
+   //     return;
+   
 
     //addPid(record.EventHeader.ProcessId);
-    addProcess(record.EventHeader.ProcessId, EtwUtils::GetProcessPathFromId(record.EventHeader.ProcessId));
-    
+    addProcess(record.EventHeader.ProcessId, eventProcessName );
+     
     try {
             PrintEventInfo(record, trace_context, jsonOutput);
             PrintPropertyInfo(parser, jsonOutput, record, trace_context);
@@ -644,7 +733,6 @@ void EtwAlertProcessor(const nlohmann::json& jsonAlert) {
 }
 
 void LoadProcessNames() {
-    g_monitoredProcesses.clear();
     std::ifstream file("C:\\APPAIEtwLogger\\processes.txt");
     if (!file.is_open()) {
         std::cout << "processes.txt not found. Monitoring all processes." << std::endl;
@@ -682,10 +770,11 @@ void LoadProcessNames() {
             DBG_LOG("\n#############################################################");
             std::cout << std::endl << "Randomly Selected Process: " << processName << std::endl;
             DBG_LOG("\n#############################################################");
-
             g_logFileName = processName + ".txt";
+
             g_monitoredProcesses[processName] = true;
-            //break;
+            SetChildTrue(processName);
+            break;
         }
         /*else {
                 g_monitoredProcesses[processName] = false;
@@ -737,6 +826,7 @@ void ListProcessesToFile(const char* filename) {
 "ShellExperienceHost.exe", "ServiceHub.DataWarehouseHost.exe", "LockApp.exe", "SystemSettings.exe", "UserOOBEBroker.exe", "mspdbsrv.exe", "smartscreen.exe",
 "CompatTelRunner.exe", "SearchProtocolHost.exe", "audiodg.exe", "StandardCollector.Service.exe", "ScriptedSandbox64.exe", "EtwLogger.exe", "SearchFilterHost.exe" 
         };
+
         if (pe32.th32ProcessID > 4 && std::find(ban_to_write.begin(), ban_to_write.end(), pe32.szExeFile ) == ban_to_write.end()) {
             std::string processName = pe32.szExeFile;
 
@@ -782,8 +872,6 @@ int initEtwMon() {
     DBG_LOG("Init EtwMon called...");
     InitializeCriticalSectionForFile();
     InitializeCriticalSectionForLog();
-    std::thread periodicThread(RunFunctionPeriodically);
-    periodicThread.detach();
 
     //LoadVectorizer();
     //MyVectorizer myVectorizer = ;
@@ -799,7 +887,6 @@ int initEtwMon() {
     
     std::ifstream file("C:\\APPAIEtwLogger\\providers.txt");
     std::vector<std::wstring> lines;
-
     if (file.is_open()) {
         std::string line;
         while (std::getline(file, line)) {
@@ -813,9 +900,7 @@ int initEtwMon() {
         std::cerr << "Unable to open file" << std::endl;
         return 1;
     }
-
     std::vector<EtwMon::PROVIDER_INFO> providerInfoVector;
-
     for (const auto& line : lines) {
         EtwMon::PROVIDER_INFO curProviderInfo;
         size_t spacePos = line.find(L' ');
@@ -850,9 +935,11 @@ int initEtwMon() {
 
     if (monitor.RegisterProviders(providerInfoVector))
     {
+        std::thread periodicThread(RunFunctionPeriodically);
         std::thread printerThread(printMapPeriodically);
         std::thread processJsonThread(ProcessJsonList);
         printerThread.detach();
+        periodicThread.detach();
         processJsonThread.detach();
         monitor.start();
     }
