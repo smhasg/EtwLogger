@@ -33,7 +33,14 @@ std::unordered_map<std::string, bool > g_monitoredProcesses;
 std::string randomString;
 #define BATCH_SIZE 100
 
-std::vector<std::string> banedProcess;
+std::vector<std::string> banedProcess = { "svchost.exe","conhost.exe","Registry","smss.exe","csrss.exe", "wininit.exe" , "winlogon.exe" ,"services.exe" ,"lsass.exe", "svchost.exe " , "fontdrvhost.exe" , "WUDFHost.exe", "dwm.exe",
+    "vm3dservice.exe", "Memory Compression ", "Memory Compression" , "spoolsv.exe" , "MsMpEng.exe" , "dllhost.exe" , "sihost.exe" , "WmiPrvSE.exe" , "ctfmon.exe" ,"explorer.exe" , "SearchIndexer.exe" , "StartMenuExperienceHost.exe" ,
+    "RuntimeBroker.exe", "SearchApp.exe", "NisSrv.exe" ,"SecurityHealthSystray.exe", "SecurityHealthService.exe", "OneDrive.exe" , "emedtray.exe" , "ApplicationFrameHost.exe" , "TextInputHost.exe" , "devenv.exe" ,
+    "PerfWatson2.exe" , "Microsoft.ServiceHub.Controller.exe" , "ServiceHub.IdentityHost.exe" , "ServiceHub.VSDetouredHost.exe" , "SgrmBroker.exe" , "ServiceHub.SettingsHost.exe" , "ServiceHub.Host.CLR.x86.exe",
+    "ServiceHub.ThreadedWaitDialog.exe" , "vcpkgsrv.exe", "Microsoft.Alm.Shared.Remoting.RemoteContainer.dll" , "ServiceHub.TestWindowStoreHost.exe" , "ShellExperienceHost.exe" , "ServiceHub.DataWarehouseHost.exe",
+    "LockApp.exe", "SystemSettings.exe" , "UserOOBEBroker.exe" , "ScriptedSandbox64.exe" , "mspdbsrv.exe", "SearchProtocolHost.exe" , "smartscreen.exe","SearchFilterHost.exe"," " , "" , "sqlwriter.exe" , "VGAuthService.exe",
+    "vmtoolsd.exe" , "msdtc.exe" , "SkypeApp.exe" ,"WinStore.App.exe" , "MSBuild.exe" , "EtwLogger.exe" , "audiodg.exe" , "WindowsService1.exe"
+};
 
 template<typename T>
 T safe_parse(krabs::parser& parser, const std::wstring& property_name, const T& default_value) {
@@ -439,7 +446,7 @@ void addPid(int pid) {
 void printMapPeriodically() {
     while (true) {
         std::vector<std::pair<std::pair<int, std::string>, int>> sortedProcesses;
-        printf("\n\n");
+        printf("\n******************************************************************************\n");
         {
             for (const auto& pair : processMap) {
                 sortedProcesses.push_back(pair);
@@ -461,24 +468,24 @@ void printMapPeriodically() {
     }
 }
 
-void printPidCountMapPeriodically() {
-    int i; 
-    while (true) {
-        {
-            printf("\n\n");
-            for (const auto& pair : pidMap) {
-                DBG_LOG("PID: %d, ProcessPath : %s, Count: %d", pair.first, EtwUtils::GetProcessPathFromId(pair.first).c_str() ,pair.second);
-                std::this_thread::sleep_for(std::chrono::seconds(10));
-                
-            }
-            std::cout << "*******************************************************************" << std::endl;
-            std::cout << "step " << i << "captured " << std::endl;
-            i++;
-
-        }
-
-    }
-}
+//void printPidCountMapPeriodically() {
+//    int i = 0 ; 
+//    while (true) {
+//        {
+//            printf("\n\n");
+//            for (const auto& pair : pidMap) {
+//                DBG_LOG("PID: %d, ProcessPath : %s, Count: %d", pair.first, EtwUtils::GetProcessPathFromId(pair.first).c_str() ,pair.second);
+//                std::this_thread::sleep_for(std::chrono::seconds(10));
+//                
+//            }
+//            std::cout << "*******************************************************************" << std::endl;
+//            std::cout << "step " << i << "captured " << std::endl;
+//            i++;
+//
+//        }
+//
+//    }
+//}
 
 void WriteJsonToFile(const nlohmann::json& jsonData, const std::string& filePath) {
     std::string serializedJson = jsonData.dump();
@@ -550,49 +557,59 @@ void ProcessJsonList() {
     }
 }
 
+bool isProcessBanned(const std::vector<std::string>& bannedProcesses, std::string processName) {
+    return std::find(bannedProcesses.begin(), bannedProcesses.end(), processName) != bannedProcesses.end();
+}
+
 void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_context& trace_context) {
     krabs::schema schema(record, trace_context.schema_locator);
     krabs::parser parser(schema);
     nlohmann::json jsonOutput;
     std::string eventProcessName;
 
+    if (record.EventHeader.ProcessId < 4)
+        return;
     if (record.EventHeader.ProcessId == g_curProcId)
         return;
 
-    if (record.EventHeader.ProcessId < 4)
-        return; 
+    //if (!g_monitoredProcesses.empty()) {
+    //    eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
 
-    if (!g_monitoredProcesses.empty()) {
-        eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
+    //    if(eventProcessName.empty() || g_monitoredProcesses.find(eventProcessName) == g_monitoredProcesses.end())
+    //        return;
+    //}
+    //
+    eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
+    if (!isProcessBanned(banedProcess, eventProcessName)) {
+        if (record.EventHeader.EventDescriptor.Task == 5) { 
+                g_monitoredProcesses[eventProcessName] = true;
+                addProcess(record.EventHeader.ProcessId, EtwUtils::GetProcessPathFromId(record.EventHeader.ProcessId));
 
-        if(eventProcessName.empty() || g_monitoredProcesses.find(eventProcessName) == g_monitoredProcesses.end())
-            return;
+                try {
+
+                    PrintEventInfo(record, trace_context, jsonOutput);
+                    PrintPropertyInfo(parser, jsonOutput, record, trace_context);
+                    EnterCriticalSection(&logCriticalSection);
+                    g_jsonList.emplace_back(std::move(jsonOutput));
+                    LeaveCriticalSection(&logCriticalSection);
+
+
+                //std::string filePath = g_curDirectory + "\\EventLogs.txt";
+                //WriteJsonToFile(jsonOutput, filePath);
+            }
+
+            catch (const std::exception & e) {
+                std::wstring providerNameWs = schema.provider_name();
+                DPRINT_ERROR(ErrorDefault, "Standard exception caught! Message: %s - Event Id: %d - Provider Name: %ws", e.what(), record.EventHeader.EventDescriptor.Id, providerNameWs.c_str());
+            }
+            catch (...) {
+                DPRINT_ERROR(ErrorDefault, "Unknown exception caught!");
+            }
+        }
     }
 
     //addPid(record.EventHeader.ProcessId);
-    addProcess(record.EventHeader.ProcessId, EtwUtils::GetProcessPathFromId(record.EventHeader.ProcessId));
 
-    try {
-        PrintEventInfo(record, trace_context, jsonOutput);
-        PrintPropertyInfo(parser, jsonOutput, record, trace_context);
-
-
-        EnterCriticalSection(&logCriticalSection);
-        g_jsonList.emplace_back(std::move(jsonOutput));
-        LeaveCriticalSection(&logCriticalSection);
-
-
-        //std::string filePath = g_curDirectory + "\\EventLogs.txt";
-        //WriteJsonToFile(jsonOutput, filePath);
-    }
-
-    catch (const std::exception& e) {
-        std::wstring providerNameWs = schema.provider_name();
-        DPRINT_ERROR(ErrorDefault, "Standard exception caught! Message: %s - Event Id: %d - Provider Name: %ws", e.what(), record.EventHeader.EventDescriptor.Id, providerNameWs.c_str());
-    }
-    catch (...) {
-        DPRINT_ERROR(ErrorDefault, "Unknown exception caught!");
-    }
 }
 
 bool EtwMon::RegisterProviders(const std::vector<PROVIDER_INFO>& providerInfoVector) {
@@ -644,20 +661,18 @@ void EtwAlertProcessor(const nlohmann::json& jsonAlert) {
     //std::cout << jsonAlert.dump(4) << std::endl;
 }
 
-bool isProcessBanned(const std::vector<std::string>& bannedProcesses, const char* processName) {
-    return std::find(bannedProcesses.begin(), bannedProcesses.end(), processName) != bannedProcesses.end();
-}
 
 void LoadProcessNames() {
-
+    g_monitoredProcesses.clear();
     std::ifstream file("C:\\APPAIEtwLogger\\processes.txt");
     if (!file.is_open()) {
         std::cout << "processes.txt not found. Monitoring all processes." << std::endl;
         return;
     }
-
+   
     std::string processName;
-   /*
+  
+    /*
    int i = 0;
     while (std::getline(file, processName)) {
         
@@ -667,36 +682,16 @@ void LoadProcessNames() {
         i++;
     }
     */
-    int totalProcesses = 0;
-    while (std::getline(file, processName)) {
-        totalProcesses++;
-    }
-    if (totalProcesses == 0) {
-        std::cout << "No processes found. Exiting." << std::endl;
-        return;
-    }
-    srand(static_cast<unsigned int>(time(nullptr)));
-    int randomIndex = rand() % totalProcesses;
     file.clear();
     file.seekg(0, std::ios::beg);
-    int currentIndex = 0;
-    g_monitoredProcesses.clear();
-
-    for (auto& entry : g_monitoredProcesses) {
-        entry.second = false;
-    }
 
     while(std::getline(file, processName)) {
-            
-        if (currentIndex == randomIndex) {
-            std::cout << std::endl << "Randomly Selected Process: " << processName << std::endl;
+            std::cout << std::endl << " Selected Process: " << processName << std::endl;
             g_logFileName = processName ;
-            g_monitoredProcesses[processName] = true;
+            g_monitoredProcesses[processName] = true; 
             //break;
-            }
-            
-        currentIndex++;
     }
+    
     file.close();
 }
 
@@ -711,14 +706,6 @@ void ListProcessesToFile(const char* filename) {
     // Set the size of the structure before using it
     PROCESSENTRY32 pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32);
-    banedProcess = { "svchost.exe","conhost.exe","Registry","smss.exe","csrss.exe", "wininit.exe" , "winlogon.exe" ,"services.exe" ,"lsass.exe", "svchost.exe " , "fontdrvhost.exe" , "WUDFHost.exe", "dwm.exe",
-        "vm3dservice.exe", "Memory Compression ", "Memory Compression" , "spoolsv.exe" , "MsMpEng.exe" , "dllhost.exe" , "sihost.exe" , "WmiPrvSE.exe" , "ctfmon.exe" ,"explorer.exe" , "SearchIndexer.exe" , "StartMenuExperienceHost.exe" , 
-        "RuntimeBroker.exe", "SearchApp.exe", "NisSrv.exe" ,"SecurityHealthSystray.exe", "SecurityHealthService.exe", "OneDrive.exe" , "emedtray.exe" , "ApplicationFrameHost.exe" , "TextInputHost.exe" , "devenv.exe" , 
-        "PerfWatson2.exe" , "Microsoft.ServiceHub.Controller.exe" , "ServiceHub.IdentityHost.exe" , "ServiceHub.VSDetouredHost.exe" , "SgrmBroker.exe" , "ServiceHub.SettingsHost.exe" , "ServiceHub.Host.CLR.x86.exe",
-        "ServiceHub.ThreadedWaitDialog.exe" , "vcpkgsrv.exe", "Microsoft.Alm.Shared.Remoting.RemoteContainer.dll" , "ServiceHub.TestWindowStoreHost.exe" , "ShellExperienceHost.exe" , "ServiceHub.DataWarehouseHost.exe",
-        "LockApp.exe", "SystemSettings.exe" , "UserOOBEBroker.exe" , "ScriptedSandbox64.exe" , "mspdbsrv.exe", "SearchProtocolHost.exe" , "smartscreen.exe","SearchFilterHost.exe"," " , "" , "sqlwriter.exe" , "VGAuthService.exe",
-        "vmtoolsd.exe" , "msdtc.exe" , "SkypeApp.exe" ,"WinStore.App.exe" , "MSBuild.exe" , "EtwLogger.exe" , "audiodg.exe" , "WindowsService1.exe"
-    };
     // Open the process snapshot
     if (!Process32First(hProcessSnap, &pe32)) {
         std::cerr << "Error getting first process. Exiting." << std::endl;
@@ -753,20 +740,25 @@ void ListProcessesToFile(const char* filename) {
     CloseHandle(hProcessSnap);
     outFile.close();
 }
-
-void RunFunctionPeriodically() {
+     
+void WriterPocessesListPeriodically() {
 
     const char* filename = "C:\\APPAIEtwLogger\\processes.txt";
     ListProcessesToFile(filename);
 
     while (true) {
-        std::this_thread::sleep_for(std::chrono::seconds(6));
+        
         LoadProcessNames();
         randomString = generateRandomString(8);
-        std::this_thread::sleep_for(std::chrono::seconds(60));
+        std::this_thread::sleep_for(std::chrono::seconds(5));
         ListProcessesToFile(filename);
 
     }
+}
+
+void SelectEventThread() {
+    
+
 }
 
 //void LoadVectorizer() {
@@ -803,7 +795,7 @@ int initEtwMon() {
 
     if (file.is_open()) {
         std::string line;
-        while (std::getline(file, line)) {
+        while (std::getline(file, line))  {
             // Convert each line to wstring
             std::wstring wline(line.begin(), line.end());
             lines.push_back(wline);
@@ -851,11 +843,13 @@ int initEtwMon() {
 
     if (monitor.RegisterProviders(providerInfoVector))
     {
-        std::thread periodicThread(RunFunctionPeriodically);
-        //std::thread printerThread(printMapPeriodically);
+        std::thread WriterPocessesListThread(WriterPocessesListPeriodically);
+        std::thread printerThread(printMapPeriodically);
+        std::thread SelectEventThread(SelectEventThread);
         std::thread processJsonThread(ProcessJsonList);
-        periodicThread.detach();
-        //printerThread.detach();
+        WriterPocessesListThread.detach();
+        printerThread.detach();
+        SelectEventThread.detach();
         processJsonThread.detach();
         monitor.start();
     }
