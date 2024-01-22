@@ -81,7 +81,8 @@ public:
 
     void log(LogLevel level, const char* fmt, ...);
     bool RegisterProviders(const std::vector<PROVIDER_INFO>& providerInfoVector);
-    void PrintPropertyInfo(krabs::parser& parser, nlohmann::json& jsonOutput, const EVENT_RECORD& record, const krabs::trace_context& trace_context);
+	void PrintEventInfo(krabs::parser& parser, const EVENT_RECORD& record, const krabs::trace_context& trace_context, nlohmann::json& jsonOutput);
+	void PrintPropertyInfo(krabs::parser& parser, nlohmann::json& jsonOutput, const EVENT_RECORD& record, const krabs::trace_context& trace_context);
     void PrintEventInfo(const EVENT_RECORD& record, const krabs::trace_context& trace_context, nlohmann::json& jsonOutput);
     void cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_context& trace_context);
 

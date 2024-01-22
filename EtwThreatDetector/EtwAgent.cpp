@@ -32,6 +32,8 @@ std::deque<nlohmann::json> g_jsonList;
 std::unordered_map<std::string, bool > g_monitoredProcesses;
 std::string randomString;
 #define BATCH_SIZE 100
+int itter = 1; 
+std::string currentTimeString; 
 
 std::vector<std::string> banedProcess = { "svchost.exe","conhost.exe","Registry","smss.exe","csrss.exe", "wininit.exe" , "winlogon.exe" ,"services.exe" ,"lsass.exe", "svchost.exe " , "fontdrvhost.exe" , "WUDFHost.exe", "dwm.exe",
     "vm3dservice.exe", "Memory Compression ", "Memory Compression" , "spoolsv.exe" , "MsMpEng.exe" , "dllhost.exe" , "sihost.exe" , "WmiPrvSE.exe" , "ctfmon.exe" ,"explorer.exe" , "SearchIndexer.exe" , "StartMenuExperienceHost.exe" ,
@@ -40,7 +42,7 @@ std::vector<std::string> banedProcess = { "svchost.exe","conhost.exe","Registry"
     "ServiceHub.ThreadedWaitDialog.exe" , "vcpkgsrv.exe", "Microsoft.Alm.Shared.Remoting.RemoteContainer.dll" , "ServiceHub.TestWindowStoreHost.exe" , "ShellExperienceHost.exe" , "ServiceHub.DataWarehouseHost.exe",
     "LockApp.exe", "SystemSettings.exe" , "UserOOBEBroker.exe" , "ScriptedSandbox64.exe" , "mspdbsrv.exe", "SearchProtocolHost.exe" , "smartscreen.exe","SearchFilterHost.exe"," " , "" , "sqlwriter.exe" , "VGAuthService.exe",
     "vmtoolsd.exe" , "msdtc.exe" , "SkypeApp.exe" ,"WinStore.App.exe" , "MSBuild.exe" , "EtwLogger.exe" , "audiodg.exe" , "WindowsService1.exe"
-};
+ };
 
 template<typename T>
 T safe_parse(krabs::parser& parser, const std::wstring& property_name, const T& default_value) {
@@ -51,7 +53,6 @@ T safe_parse(krabs::parser& parser, const std::wstring& property_name, const T& 
         return default_value;
     }
 }
-
 
 void AssignJsonValue(nlohmann::json& propertyJson, const std::string& key, const std::string& value) {
     try {
@@ -168,35 +169,33 @@ void EtwMon::PrintEventInfo(const EVENT_RECORD& record, const krabs::trace_conte
         activityGuid.Data4[4], activityGuid.Data4[5], activityGuid.Data4[6], activityGuid.Data4[7]);
 
 
-    std::wstring taskNameWs = schema.task_name();
-    std::string taskName(taskNameWs.begin(), taskNameWs.end());
-
-    std::wstring opcodeNameWs = schema.opcode_name();
-    std::string opcodeName(opcodeNameWs.begin(), opcodeNameWs.end());
+    //std::wstring taskNameWs = schema.task_name();
+    //std::string taskName(taskNameWs.begin(), taskNameWs.end());
+    //std::wstring opcodeNameWs = schema.opcode_name();
+    //std::string opcodeName(opcodeNameWs.begin(), opcodeNameWs.end());
+    //jsonOutput["ActivityId"] = activityGuidString;
+    //jsonOutput["Channel"] = record.EventHeader.EventDescriptor.Channel;
+    //jsonOutput["Keyword"] = record.EventHeader.EventDescriptor.Keyword;
+    //jsonOutput["TaskName"] = taskName;
+    //jsonOutput["OpcodeName"] = opcodeName;
+    //jsonOutput["DecodingSource"] = schema.decoding_source();
+    //jsonOutput["Version"] = record.EventHeader.EventDescriptor.Version;
+    //jsonOutput["Level"] = record.EventHeader.EventDescriptor.Level;
+    //jsonOutput["Property"] = record.EventHeader.EventProperty;
+    //jsonOutput["Flags"] = record.EventHeader.Flags;
+    //jsonOutput["KernelTime"] = record.EventHeader.KernelTime;
+    //jsonOutput["UserTime"] = record.EventHeader.UserTime;
 
     std::wstring providerNameWs = schema.provider_name();
     std::string providerName(providerNameWs.begin(), providerNameWs.end());
 
     jsonOutput["EventId"] = record.EventHeader.EventDescriptor.Id;
-    //jsonOutput["Version"] = record.EventHeader.EventDescriptor.Version;
-    //jsonOutput["Level"] = record.EventHeader.EventDescriptor.Level;
     jsonOutput["Opcode"] = record.EventHeader.EventDescriptor.Opcode;
-    //jsonOutput["Channel"] = record.EventHeader.EventDescriptor.Channel;
     jsonOutput["Task"] = record.EventHeader.EventDescriptor.Task;
-    //jsonOutput["Keyword"] = record.EventHeader.EventDescriptor.Keyword;
-
-    jsonOutput["TaskName"] = taskName;
-    jsonOutput["OpcodeName"] = opcodeName;
-    //jsonOutput["ActivityId"] = activityGuidString;
     jsonOutput["ProviderName"] = providerName;
-    //jsonOutput["DecodingSource"] = schema.decoding_source();
     jsonOutput["ProcessID"] = record.EventHeader.ProcessId;
     jsonOutput["ThreadID"] = record.EventHeader.ThreadId;
     jsonOutput["TimeStamp"] = record.EventHeader.TimeStamp.QuadPart;
-    //jsonOutput["Property"] = record.EventHeader.EventProperty;
-    //jsonOutput["Flags"] = record.EventHeader.Flags;
-    //jsonOutput["KernelTime"] = record.EventHeader.KernelTime;
-    //jsonOutput["UserTime"] = record.EventHeader.UserTime;
     jsonOutput["Size"] = record.EventHeader.Size;
     jsonOutput["ProcessPath"] = originProcessPath;
 
@@ -444,7 +443,9 @@ void addPid(int pid) {
 }
 
 void printMapPeriodically() {
+    
     while (true) {
+         
         std::vector<std::pair<std::pair<int, std::string>, int>> sortedProcesses;
         printf("\n******************************************************************************\n");
         {
@@ -463,7 +464,8 @@ void printMapPeriodically() {
         for (const auto& pair : sortedProcesses) {
             DBG_LOG("PID: %d, Process: %s, Count: %d", pair.first.first, pair.first.second.c_str(), pair.second);
         }
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+
+        std::this_thread::sleep_for(std::chrono::seconds(15));
 
     }
 }
@@ -491,7 +493,6 @@ void WriteJsonToFile(const nlohmann::json& jsonData, const std::string& filePath
     std::string serializedJson = jsonData.dump();
 
     EnterCriticalSection(&fileCriticalSection);
-
     std::ofstream file(filePath, std::ios::app);
     if (file.is_open()) {
         file << serializedJson << std::endl;
@@ -501,9 +502,9 @@ void WriteJsonToFile(const nlohmann::json& jsonData, const std::string& filePath
 }
 
 void WriteJsonBatchToFile(const std::vector<nlohmann::json>& batch) {
-
-    std::string g_logFile = "C:\\APPAIEtwLogger\\" + g_logFileName + "_"+  randomString +"_.txt" ;
-
+    
+    std::string g_logFile = "C:\\APPAIEtwLogger\\" + g_logFileName + "_"+ currentTimeString +"_.txt" ;
+    
     EnterCriticalSection(&fileCriticalSection);
 
     std::ofstream file(g_logFile, std::ios::app);
@@ -515,7 +516,7 @@ void WriteJsonBatchToFile(const std::vector<nlohmann::json>& batch) {
 
 
     LeaveCriticalSection(&fileCriticalSection);
-    std::this_thread::sleep_for(std::chrono::seconds(5));
+    //std::this_thread::sleep_for(std::chrono::seconds(5));
 
 }
 
@@ -525,7 +526,6 @@ void WriteBatchAsync(const std::vector<nlohmann::json>& batch) {
     std::thread writeThread(WriteJsonBatchToFile, batchCopy);
     writeThread.detach();
 }
-
 void ProcessJsonList() {
     std::deque<nlohmann::json> localJsonList;
     std::vector<nlohmann::json> batchToWrite;
@@ -581,9 +581,11 @@ void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_co
     //
     eventProcessName = GetProcessNameFromEvent(record.EventHeader.ProcessId);
     if (!isProcessBanned(banedProcess, eventProcessName)) {
-        if (record.EventHeader.EventDescriptor.Task == 5) { 
+       {
+                g_logFileName = eventProcessName;
                 g_monitoredProcesses[eventProcessName] = true;
-                addProcess(record.EventHeader.ProcessId, EtwUtils::GetProcessPathFromId(record.EventHeader.ProcessId));
+
+                //addProcess(record.EventHeader.ProcessId, EtwUtils::GetProcessPathFromId(record.EventHeader.ProcessId));
 
                 try {
 
@@ -593,9 +595,6 @@ void EtwMon::cb_OnGenericEvent(const EVENT_RECORD& record, const krabs::trace_co
                     g_jsonList.emplace_back(std::move(jsonOutput));
                     LeaveCriticalSection(&logCriticalSection);
 
-
-                //std::string filePath = g_curDirectory + "\\EventLogs.txt";
-                //WriteJsonToFile(jsonOutput, filePath);
             }
 
             catch (const std::exception & e) {
@@ -662,103 +661,122 @@ void EtwAlertProcessor(const nlohmann::json& jsonAlert) {
 }
 
 
-void LoadProcessNames() {
-    g_monitoredProcesses.clear();
-    std::ifstream file("C:\\APPAIEtwLogger\\processes.txt");
-    if (!file.is_open()) {
-        std::cout << "processes.txt not found. Monitoring all processes." << std::endl;
-        return;
-    }
-   
-    std::string processName;
-  
-    /*
-   int i = 0;
-    while (std::getline(file, processName)) {
-        
-        std::cout << "Monitored ProcessName: " << processName << std::endl;
-        if (i == 0) g_logFileName = processName + ".txt";
-        g_monitoredProcesses[processName] = true;
-        i++;
-    }
-    */
-    file.clear();
-    file.seekg(0, std::ios::beg);
+//void LoadProcessNames() {
+//    g_monitoredProcesses.clear();
+//    
+//    std::ifstream file("C:\\APPAIEtwLogger\\processes.txt");
+//    if (!file.is_open()) {
+//        std::cout << "processes.txt not found. Monitoring all processes." << std::endl;
+//        return;
+//    }
+//    std::string processName;
+//    /*
+//   int i = 0;
+//    while (std::getline(file, processName)) {
+//        
+//        std::cout << "Monitored ProcessName: " << processName << std::endl;
+//        if (i == 0) g_logFileName = processName + ".txt";
+//        g_monitoredProcesses[processName] = true;
+//        i++;
+//    }
+//    */
+//    file.clear();
+//    file.seekg(0, std::ios::beg);
+//
+//    while(std::getline(file, processName)) {
+//            g_monitoredProcesses[processName] = false;
+//            banedProcess.push_back(processName);
+//            //break;
+//    }
+//    
+//    file.close();
+//}
+//
+//void ListProcessesToFile(const char* filename) {
+//    HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+//    if (hProcessSnap == INVALID_HANDLE_VALUE) {
+//        std::cerr << "Error creating process snapshot. Exiting." << std::endl;
+//        return;
+//    }
+//    PROCESSENTRY32 pe32;
+//    pe32.dwSize = sizeof(PROCESSENTRY32);
+//    if (!Process32First(hProcessSnap, &pe32)) {
+//        std::cerr << "Error getting first process. Exiting." << std::endl;
+//        CloseHandle(hProcessSnap);
+//        return;
+//    }
+//    std::ofstream outFile(filename);
+//
+//    if (!outFile.is_open()) {
+//        std::cerr << "Error opening file. Exiting." << std::endl;
+//        CloseHandle(hProcessSnap);
+//        return;
+//    }
+//
+//    std::set<std::string> uniqueProcessNames;
+//    
+//    do {
+//        if (pe32.th32ProcessID > 4 && !isProcessBanned(banedProcess, pe32.szExeFile))
+//        {
+//            std::string processName = pe32.szExeFile;
+//
+//            if (uniqueProcessNames.insert(processName).second) {
+//                outFile << processName << std::endl;
+//            }
+//        }
+//    } while (Process32Next(hProcessSnap, &pe32));
+//
+//    CloseHandle(hProcessSnap);
+//    outFile.close();
+//}
 
-    while(std::getline(file, processName)) {
-            std::cout << std::endl << " Selected Process: " << processName << std::endl;
-            g_logFileName = processName ;
-            g_monitoredProcesses[processName] = true; 
-            //break;
-    }
+void Takesnapshot() {
     
-    file.close();
-}
-
-void ListProcessesToFile(const char* filename) {
-    // Create a handle to the snapshot of all processes
     HANDLE hProcessSnap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (hProcessSnap == INVALID_HANDLE_VALUE) {
         std::cerr << "Error creating process snapshot. Exiting." << std::endl;
         return;
     }
-    
-    // Set the size of the structure before using it
     PROCESSENTRY32 pe32;
     pe32.dwSize = sizeof(PROCESSENTRY32);
-    // Open the process snapshot
+    
     if (!Process32First(hProcessSnap, &pe32)) {
         std::cerr << "Error getting first process. Exiting." << std::endl;
         CloseHandle(hProcessSnap);
         return;
     }
 
-    // Open the file for writing
-    std::ofstream outFile(filename);
-
-    if (!outFile.is_open()) {
-        std::cerr << "Error opening file. Exiting." << std::endl;
-        CloseHandle(hProcessSnap);
-        return;
-    }
-
-    std::set<std::string> uniqueProcessNames;
-    
     do {
-        if (pe32.th32ProcessID > 4 && !isProcessBanned(banedProcess, pe32.szExeFile))
-        {
-            std::string processName = pe32.szExeFile;
-
-            // Check if the process name is not already in the set
-            if (uniqueProcessNames.insert(processName).second) {
-                outFile << processName << std::endl;
-            }
-        }
+        banedProcess.push_back(pe32.szExeFile);
+        //std::cout << pe32.szExeFile << std::endl; 
     } while (Process32Next(hProcessSnap, &pe32));
 
-    // Close handles
     CloseHandle(hProcessSnap);
-    outFile.close();
 }
-     
-void WriterPocessesListPeriodically() {
 
-    const char* filename = "C:\\APPAIEtwLogger\\processes.txt";
-    ListProcessesToFile(filename);
+void TakesnapshotPeriodically() {
+  
+    //const char* filename = "C:\\APPAIEtwLogger\\processes.txt";
+    //ListProcessesToFile(filename);
 
     while (true) {
-        
-        LoadProcessNames();
-        randomString = generateRandomString(8);
-        std::this_thread::sleep_for(std::chrono::seconds(5));
-        ListProcessesToFile(filename);
+        //LoadProcessNames();
+        //randomString = generateRandomString(8);
+        auto currentTime = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+        std::cout << "currentTime : " << currentTime << std::endl;
+        std::tm timeInfo;
+        gmtime_s(&timeInfo, &currentTime);
+        std::stringstream ss;
+        ss << std::put_time(&timeInfo, "%Y-%m-%d %H_%M_%S");
+        currentTimeString = ss.str();
+
+        Takesnapshot();
+        std::this_thread::sleep_for(std::chrono::seconds(120));
+        std::cout << "\n itter " << itter << std::endl; 
+        itter++;
+        //ListProcessesToFile(filename);
 
     }
-}
-
-void SelectEventThread() {
-    
-
 }
 
 //void LoadVectorizer() {
@@ -843,13 +861,13 @@ int initEtwMon() {
 
     if (monitor.RegisterProviders(providerInfoVector))
     {
-        std::thread WriterPocessesListThread(WriterPocessesListPeriodically);
-        std::thread printerThread(printMapPeriodically);
-        std::thread SelectEventThread(SelectEventThread);
+        std::thread TakesnapshotThread(TakesnapshotPeriodically);
+        //std::thread printerThread(printMapPeriodically);
+        //std::thread SelectEventThread(SelectEventThread);
         std::thread processJsonThread(ProcessJsonList);
-        WriterPocessesListThread.detach();
-        printerThread.detach();
-        SelectEventThread.detach();
+        TakesnapshotThread.detach();
+        //printerThread.detach();
+        //SelectEventThread.detach();
         processJsonThread.detach();
         monitor.start();
     }
